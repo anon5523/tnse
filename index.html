@@ -18,13 +18,14 @@
 body{background:var(--bg);color:var(--txt);font-family:var(--f);height:100vh;display:flex;flex-direction:column;overflow:hidden}
 
 /* ── Header ── */
-.hdr{background:linear-gradient(135deg,#0f172a,#1e293b);border-bottom:1px solid var(--bdr);padding:.75rem 1.2rem;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-shrink:0;z-index:1000;position:relative}
-.hdr-left{display:flex;align-items:center;gap:10px}
-.hdr-icon{width:34px;height:34px;background:linear-gradient(135deg,var(--bl),var(--cy));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;box-shadow:0 0 12px rgba(34,211,238,.2);flex-shrink:0}
-.hdr-title{font-size:1.05rem;font-weight:700;background:linear-gradient(90deg,#e2e8f0,var(--cy));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.hdr-sub{font-size:.65rem;color:var(--t3)}
-.hdr-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
-.hdr-clock{font-family:var(--m);font-size:.78rem;color:var(--cy);background:rgba(34,211,238,.07);padding:4px 10px;border-radius:5px;border:1px solid rgba(34,211,238,.13)}
+.hdr{background:linear-gradient(135deg,#0f172a,#1e293b);border-bottom:1px solid var(--bdr);padding:.6rem 1rem;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0;z-index:1000;position:relative;min-width:0}
+.hdr-left{display:flex;align-items:center;gap:8px;min-width:0;flex:1;overflow:hidden}
+.hdr-icon{width:32px;height:32px;background:linear-gradient(135deg,var(--bl),var(--cy));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1rem;box-shadow:0 0 10px rgba(34,211,238,.2);flex-shrink:0}
+.hdr-text{min-width:0;overflow:hidden}
+.hdr-title{font-size:1rem;font-weight:700;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hdr-sub{font-size:.62rem;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hdr-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.hdr-clock{font-family:var(--m);font-size:.75rem;color:var(--cy);background:rgba(34,211,238,.07);padding:3px 8px;border-radius:5px;border:1px solid rgba(34,211,238,.13)}
 .back-btn{padding:4px 12px;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.3);color:#93c5fd;border-radius:5px;font-size:.75rem;cursor:pointer;font-family:var(--f);text-decoration:none;display:flex;align-items:center;gap:5px;transition:.15s}
 .back-btn:hover{background:rgba(59,130,246,.25)}
 /* ── 定位按鈕 ── */
@@ -129,9 +130,12 @@ body{background:var(--bg);color:var(--txt);font-family:var(--f);height:100vh;dis
   .side{width:85%;max-width:300px;position:absolute;top:0;left:0;height:100%;z-index:600;transition:transform .25s ease,opacity .25s ease}
   .side.collapsed{width:85%;max-width:300px;transform:translateX(-100%);opacity:0;pointer-events:none}
   .toggle-panel{display:none}
-  /* 手機側欄打開時，地圖區域加半透明遮罩 */
   .map-overlay{display:none;position:absolute;inset:0;background:rgba(0,0,0,.5);z-index:599;-webkit-tap-highlight-color:transparent}
   .map-overlay.show{display:block}
+  /* 手機 header 精簡 */
+  .hdr-clock{display:none}
+  .back-btn{padding:3px 8px;font-size:.7rem}
+  .hdr{padding:.5rem .75rem}
 }
 </style>
 </head>
@@ -142,7 +146,7 @@ body{background:var(--bg);color:var(--txt);font-family:var(--f);height:100vh;dis
   <div class="hdr-left">
     <div class="hamburger-btn" id="hamburger-btn" onclick="toggleSide()" aria-label="開關側欄">≡</div>
     <div class="hdr-icon">🗺️</div>
-    <div>
+    <div class="hdr-text">
       <div class="hdr-title">台南市雨水下水道 GIS 管線圖</div>
       <div class="hdr-sub">管線 &amp; 人孔圖資 ｜ 資料來源：台南市水利局</div>
     </div>
@@ -349,34 +353,91 @@ async function fetchLayerInfo(layerId) {
   return await tryFetch(gisUrl(`/${layerId}?f=json`), 30000);
 }
 
+// ── GIS 載入模式 ──
+let isBboxMode = false;
+let lastLoadedBounds = null;
+let bboxTimer = null;
+
 async function fetchAllFeatures(layerId, onProgress) {
   const info   = await fetchLayerInfo(layerId);
   const maxRec = (info && info.maxRecordCount) ? Math.min(info.maxRecordCount, 2000) : 1000;
-  console.log(`[GIS] Layer ${layerId} maxRec=${maxRec}`);
 
   const idsData = await tryFetch(gisUrl(`/${layerId}/query?where=1%3D1&returnIdsOnly=true&f=json`), 30000);
   if (!idsData || !idsData.objectIds) {
-    console.warn(`[GIS] Layer ${layerId} 無法取得 objectIds，嘗試直接全抓`);
     const data = await tryFetch(gisUrl(`/${layerId}/query?where=1%3D1&outFields=*&outSR=4326&f=geojson`), 60000);
     return data ? data.features || [] : [];
   }
 
   const ids = idsData.objectIds;
   const total = ids.length;
-  console.log(`[GIS] Layer ${layerId} 共 ${total} 筆，共 ${Math.ceil(total/maxRec)} 批`);
   const features = [];
-
   for (let i = 0; i < total; i += maxRec) {
     const batchIds = ids.slice(i, i + maxRec).join(',');
     const data = await tryFetch(gisUrl(`/${layerId}/query?objectIds=${batchIds}&outFields=*&outSR=4326&f=geojson`), 60000);
     if (data && data.features) features.push(...data.features);
-    else console.warn(`[GIS] 第 ${Math.floor(i/maxRec)+1} 批失敗`);
     if (onProgress) onProgress(features.length, total);
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise(r => setTimeout(r, 80));
   }
-  console.log(`[GIS] Layer ${layerId} 實際取得 ${features.length} 筆`);
   return features;
 }
+
+// bbox 查詢：只抓目前視窗範圍
+async function fetchByBounds(layerId, bounds, onProgress) {
+  const sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
+  const latD = (ne.lat - sw.lat) * 0.4, lngD = (ne.lng - sw.lng) * 0.4;
+  const env = `${sw.lng-lngD},${sw.lat-latD},${ne.lng+lngD},${ne.lat+latD}`;
+  const url = gisUrl(`/${layerId}/query?where=1%3D1&geometry=${env}&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=*&outSR=4326&f=geojson`);
+  const data = await tryFetch(url, 45000);
+  const feats = data?.features || [];
+  if (onProgress) onProgress(feats.length, feats.length);
+  return feats;
+}
+
+// 手動觸發 bbox 重新載入
+async function reloadByBounds() {
+  const btn = document.getElementById('bbox-reload-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '載入中…'; }
+  try {
+    const b = map.getBounds();
+    lastLoadedBounds = b.pad(0.4);
+
+    document.getElementById('st-pipe').textContent = '載入中…';
+    document.getElementById('st-pipe').className = 'status-val loading';
+    const pf = await fetchByBounds(PIPE_LAYER, b, (d,t) => {
+      document.getElementById('st-pipe').textContent = `${d} 筆`;
+    });
+    allPipeData = pf;
+    renderPipes(pf);
+    document.getElementById('st-pipe').textContent = pf.length.toLocaleString() + ' 條';
+    document.getElementById('st-pipe').className = 'status-val done';
+
+    document.getElementById('st-manhole').textContent = '載入中…';
+    document.getElementById('st-manhole').className = 'status-val loading';
+    const mf = await fetchByBounds(MANHOLE_LAYER, b, (d,t) => {
+      document.getElementById('st-manhole').textContent = `${d} 筆`;
+    });
+    allManholeData = mf;
+    renderManholes(mf);
+    document.getElementById('st-manhole').textContent = mf.length.toLocaleString() + ' 座';
+    document.getElementById('st-manhole').className = 'status-val done';
+
+    const total = pf.length + mf.length;
+    document.getElementById('st-total').textContent = total.toLocaleString() + ' 筆';
+    document.getElementById('st-total').className = 'status-val done';
+  } catch(e) {
+    console.error(e);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '📡 更新此範圍'; }
+}
+
+// 地圖移動後自動重載（bbox 模式）
+map.on('moveend', () => {
+  if (!isBboxMode) return;
+  const cur = map.getBounds();
+  if (lastLoadedBounds && lastLoadedBounds.contains(cur)) return; // 還在範圍內
+  clearTimeout(bboxTimer);
+  bboxTimer = setTimeout(reloadByBounds, 900);
+});
 
 // ===================================================================
 // 時鐘
@@ -693,37 +754,53 @@ async function init() {
   const prog   = document.getElementById('loader-prog');
 
   try {
-    // 管線
-    prog.textContent = '載入管線資料…';
-    document.getElementById('st-pipe').textContent = '載入中…';
-    const pipeFeatures = await fetchAllFeatures(PIPE_LAYER, (done, total) => {
-      prog.textContent = `管線：${done} / ${total}`;
-      document.getElementById('st-pipe').textContent = `${done}/${total}`;
-    });
-    allPipeData = pipeFeatures;
-    renderPipes(pipeFeatures);
-    document.getElementById('st-pipe').textContent = pipeFeatures.length.toLocaleString() + ' 條';
-    document.getElementById('st-pipe').className = 'status-val done';
+    // ── 先查總筆數，決定載入策略 ──
+    prog.textContent = '確認圖資規模…';
+    const countData = await tryFetch(gisUrl(`/${PIPE_LAYER}/query?where=1%3D1&returnCountOnly=true&f=json`), 12000);
+    const totalPipeCount = countData?.count ?? 0;
+    console.log(`[GIS] 管線總筆數: ${totalPipeCount}`);
 
-    // 人孔
-    prog.textContent = '載入人孔資料…';
-    document.getElementById('st-manhole').textContent = '載入中…';
-    const manholeFeatures = await fetchAllFeatures(MANHOLE_LAYER, (done, total) => {
-      prog.textContent = `人孔：${done} / ${total}`;
-      document.getElementById('st-manhole').textContent = `${done}/${total}`;
-    });
-    allManholeData = manholeFeatures;
-    renderManholes(manholeFeatures);
-    document.getElementById('st-manhole').textContent = manholeFeatures.length.toLocaleString() + ' 座';
-    document.getElementById('st-manhole').className = 'status-val done';
+    if (totalPipeCount > 3000) {
+      // ── BBOX 模式：只載入目前視窗範圍 ──
+      isBboxMode = true;
+      prog.textContent = '資料量大，改用範圍載入…';
+      // 加入「更新此範圍」按鈕到狀態列
+      const stTotal = document.getElementById('st-total');
+      stTotal.insertAdjacentHTML('afterend',
+        '<button id="bbox-reload-btn" onclick="reloadByBounds()" style="margin-top:6px;width:100%;padding:5px;background:rgba(34,211,238,.12);border:1px solid rgba(34,211,238,.3);color:var(--cy);border-radius:5px;cursor:pointer;font-size:.72rem;font-family:var(--f)">📡 更新此範圍</button>'
+      );
+      await reloadByBounds();
+    } else {
+      // ── 全量模式：一次載入所有資料 ──
+      prog.textContent = '載入管線資料…';
+      document.getElementById('st-pipe').textContent = '載入中…';
+      const pipeFeatures = await fetchAllFeatures(PIPE_LAYER, (done, total) => {
+        prog.textContent = `管線：${done} / ${total}`;
+        document.getElementById('st-pipe').textContent = `${done}/${total}`;
+      });
+      allPipeData = pipeFeatures;
+      renderPipes(pipeFeatures);
+      document.getElementById('st-pipe').textContent = pipeFeatures.length.toLocaleString() + ' 條';
+      document.getElementById('st-pipe').className = 'status-val done';
 
-    const total = pipeFeatures.length + manholeFeatures.length;
-    document.getElementById('st-total').textContent = total.toLocaleString() + ' 筆';
-    document.getElementById('st-total').className = 'status-val done';
+      prog.textContent = '載入人孔資料…';
+      document.getElementById('st-manhole').textContent = '載入中…';
+      const manholeFeatures = await fetchAllFeatures(MANHOLE_LAYER, (done, total) => {
+        prog.textContent = `人孔：${done} / ${total}`;
+        document.getElementById('st-manhole').textContent = `${done}/${total}`;
+      });
+      allManholeData = manholeFeatures;
+      renderManholes(manholeFeatures);
+      document.getElementById('st-manhole').textContent = manholeFeatures.length.toLocaleString() + ' 座';
+      document.getElementById('st-manhole').className = 'status-val done';
 
-    // 自動縮放到資料範圍
-    if (pipeLayer && Object.keys(pipeLayer._layers).length > 0) {
-      try { map.fitBounds(pipeLayer.getBounds(), { padding: [30, 30] }); } catch(e) {}
+      const total = pipeFeatures.length + manholeFeatures.length;
+      document.getElementById('st-total').textContent = total.toLocaleString() + ' 筆';
+      document.getElementById('st-total').className = 'status-val done';
+
+      if (pipeLayer && Object.keys(pipeLayer._layers).length > 0) {
+        try { map.fitBounds(pipeLayer.getBounds(), { padding: [30, 30] }); } catch(e) {}
+      }
     }
 
   } catch(err) {
@@ -735,7 +812,6 @@ async function init() {
     prog.textContent = '❌ ' + err.message;
   }
 
-  // 隱藏 loader
   loader.classList.add('hide');
   setTimeout(() => loader.style.display = 'none', 600);
 }
